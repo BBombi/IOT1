@@ -1,10 +1,10 @@
 # Settings -----
-pacman::p_load(chron, dplyr, plyr, RMySQL, lubridate, ggplot2, reshape2, 
-               quantmod, scales, RColorBrewer, sqldf, ggfortify, tidyr, 
+pacman::p_load(chron, ggplot2, tidyr, plyr, RMySQL, lubridate, reshape2, 
+               quantmod, scales, RColorBrewer, sqldf, dplyr, prophet, 
                compareDF, reshape, rstudioapi, stringi, plotly, padr, 
-               DescTools, anytime, ggfortify, forecast, tslm, seasonal)
+               DescTools, anytime, forecast, seasonal) #ggfortify not used because corrumpt the script
 
-current_path <- getActiveDocumentContext()$path
+Ycurrent_path <- getActiveDocumentContext()$path
 setwd(dirname(dirname(current_path)))
 rm(current_path)
 
@@ -40,8 +40,9 @@ tail(df)
 df <- cbind(df,paste(df$Date,df$Time), stringsAsFactors = FALSE)
 colnames(df)[10] <- "DateTime"
 df <- df[,c(ncol(df), 1:(ncol(df)-1))]
-df$DateTime <- as.POSIXct(df$DateTime, "%Y/%m/%d %H:%M:%S")
-attr(df$DateTime, "tzone") <- "Europe"
+# df$DateTime <- as.POSIXct(df$DateTime, "%Y/%m/%d %H:%M:%S") # Is it necessary?
+df$DateTime <- ymd_hms(df$DateTime)
+# attr(df$DateTime, "tzone") <- "Europe" # Is it necessary?
 
 df <- df %>% mutate(Total_Power = Global_active_power + Global_reactive_power)
 summary(df$Total_Power) # Because the highest "Total Power" is 11.3 kW/h, the power hiredmust be up to 12 kVA
@@ -96,10 +97,6 @@ newDF$quarter <- quarter(newDF$DateTime)
 newDF$Time <- strftime(newDF$DateTime,format="%H:%M:%S")
 newDF$Time2 <- as.numeric(hms(newDF$Time))
 newDF$yearmonth <- as.yearmon(newDF$DateTime)
-
-# z <- zoo(1:nrow(newDF), as.POSIXct(c(newDF$DateTime)))
-# g <- seq(start(z), end(z), by = "min")
-# na.locf(z, xout = g)
 
 ## Power Fares----
 # Off-peak time is between 02:00 and 07:00; and between 14:00 and 17:00
@@ -202,7 +199,7 @@ summary(fit_Monthly_df)
 plot(forecast(fit_Monthly_df, h=5, level=c(80,90)))
 
 checkresiduals(fit_Monthly_df)
-CV(fit_Monthly_df) # Better AdjR^2, but still pretty bad.
+CV(fit_Monthly_df) # Better AdjR^2, AIC and BIC, but still pretty bad.
 round(accuracy(fit_Monthly_df)) # Seems to have good metrics
 
 ## Decomposing the Time series:
@@ -215,21 +212,25 @@ Monthly_dfts %>% seas(x11="") %>% autoplot() +
 
 fit <- Monthly_dfts %>% seas(x11="")
 
-# autoplot(Monthly_dfts, series="data") + autolayer(fit$data[,4], series="Trend") +
-#   autolayer(fit$data[,3], series="Seasonally Adjusted") + xlab("Year") +
-#   ggtitle("X11 decomposition of electrical consume") +
-#   scale_colour_manual(values=c("gray","blue","red"),
-#                       breaks=c("Data","Seasonally Adjusted","Trend")) # It's not working, and I don't know why
+require(ggplot2)
+autoplot(Monthly_dfts, series = "Data") + 
+  autolayer(fit$data[,4], series = "Trend") + 
+  autolayer(fit$data[,3], series = "Seasonally Adjusted") + xlab("Year") +
+  ggtitle("X11 decomposition of electrical consume") +
+  scale_colour_manual(values=c("darkgray","blue","red"),
+                      breaks=c("Data","Seasonally Adjusted","Trend")) 
 
-round(accuracy(ses(window(Monthly_dfts, start=2009), h=10)),2) 
+round(accuracy(ses(window(Monthly_dfts, start=2007), h=10)),2) 
 
-# autoplot(Monthly_dfts) + autolayer(holt(Monthly_dfts, h=15), 
-#                                    series= "Holt's method", PI = FALSE) +
-#   autolayer(fholt(Monthly_dfts, damped = TRUE, phi = 0.9, h=15), 
-#             series = "Damped Holt's method", PI = FALSE) +
-#   ggtitle("Forecasts from Holt's method") + xlab("Year") +
-#   ylab("Energy consumed per month (kW/h)") +
-#   guides(colour = guide_legend(title = "Forecast")) # Not working neither for the same reason.
+autoplot(Monthly_dfts) + autolayer(holt(Monthly_dfts, h=15),
+                                   series= "Holt's method", PI = FALSE) +
+  autolayer(holt(Monthly_dfts, damped = TRUE, phi = 0.9, h=15),
+            series = "Damped Holt's method", PI = FALSE) +
+  ggtitle("Forecasts from Holt's method") + xlab("Year") +
+  ylab("Energy consumed per month (kW/h)") +
+  guides(colour = guide_legend(title = "Forecast")) 
+
+round(accuracy(holt(window(Monthly_dfts, start=2007, h=10))),2) #Worse metrix than the SES.
 
 summary(decomposed_Monthly_dfts)
 decomposed_Monthly_dfts$random
@@ -253,20 +254,88 @@ fit %>% seasadj() %>% naive() %>%
 fit %>% forecast(method="naive") %>%
   autoplot() + ylab("Monthly power consume (kW/h)") + xlab("Year")
 
-## Applying Holt-Winters to the Time series:
+## Forecast Holt-Winters:
 adjusted_Monthly_dfts <- Monthly_dfts - decomposed_Monthly_dfts$seasonal
 autoplot(adjusted_Monthly_dfts)
 plot(decompose(adjusted_Monthly_dfts))
 
-Monthly_dfts_HW <- HoltWinters(adjusted_Monthly_dfts, beta=FALSE, gamma=FALSE)
+Monthly_dfts_HW <- hw(adjusted_Monthly_dfts,start = 2007, 
+                       damped = TRUE, seasonal = "additive", h=10)
+
+round(accuracy(hw(adjusted_Monthly_dfts)),2) # Seems to have the best performance so far.
+
 plot(Monthly_dfts_HW, ylim = c(575, 950))
 
-Monthly_dfts_HW2 <- hw(window(adjusted_Monthly_dfts,start = 2008), 
-                       damped = TRUE, seasonal = "additive") # Seems to have the best performance
+ ## Forecast with Prophet:
+Prophet_df <- data.frame(ds = Monthly_df$yearmonth, y = Monthly_df$Energy)
+prophet(Prophet_df)
 
- ## Forecast Holt-Winters:
-Monthly_dfts_HW_forecast<- forecast(Monthly_dfts_HW, h=5)
-plot(Monthly_dfts_HW_forecast)
+ #Forecast with auto-ARIMA:
+auto.arima(Monthly_dfts) %>% forecast(h=10) %>% autoplot(include=80)
+round(accuracy(auto.arima(Monthly_dfts)),2) # Pretty close to the HW one.
+
+# Data splitting ----
+trainSet <- window(Monthly_dfts, 2007, c(2009,12))
+Monthly_dffit1 <- meanf(trainSet,h=10)
+Monthly_dffit2 <- rwf(trainSet,h=10)
+Monthly_dffit3 <- snaive(trainSet,h=10)
+Monthly_dffit4 <- hw(trainSet, h=10)
+Monthly_dffit5 <- auto.arima(trainSet) %>% forecast(h=10)
+Monthly_dffit6 <- tslm(trainSet ~ trend + season) %>% forecast(h=10)
+
+testSet <- window(Monthly_dfts, 2010)
+round(accuracy(Monthly_dffit1, testSet),2)
+round(accuracy(Monthly_dffit2, testSet),2) # Worst one by far
+round(accuracy(Monthly_dffit3, testSet),2)
+round(accuracy(Monthly_dffit4, testSet),2) 
+round(accuracy(Monthly_dffit5, testSet),2) # better at the training test, but worse at the test set
+round(accuracy(Monthly_dffit6, testSet),2) # better at the test set, but worse at the test set. It has the lowest RMSE
+
+gglagplot(Monthly_dfts) # The relationship is strongly positive at lag 12, reflecting the strong seasonality in the data.
+ggAcf(Monthly_dfts, lag=24)
+ggsubseriesplot(Monthly_dfts)
+ggseasonplot(Monthly_dfts, year.labels=TRUE, year.labels.left=TRUE) +
+  ylab("Power consumed (kW/h)") +
+  ggtitle("Seasonal plot: Monthly power consume")
+
+
+autoplot(window(Monthly_dfts, start=2007)) +
+  autolayer(Monthly_dffit1, series="Mean", PI=FALSE) +
+  autolayer(Monthly_dffit2, series="Naïve", PI=FALSE) +
+  autolayer(Monthly_dffit3, series="Seasonal naïve", PI=FALSE) +
+  xlab("Year") + ylab("Energy (kW/h)") +
+  ggtitle("Forecasts for monthly power consume") +
+  guides(colour=guide_legend(title="Forecast"))
+
+trainSet <- window(Daily_dfts, 2007, c(2010,300))
+Daily_dffit1 <- meanf(trainSet,h=65)
+Daily_dffit2 <- rwf(trainSet,h=65)
+Daily_dffit3 <- snaive(trainSet,h=65)
+
+testSet <- window(Daily_dfts, c(2010,300))
+accuracy(Daily_dffit1, testSet)
+accuracy(Daily_dffit2, testSet)
+accuracy(Daily_dffit3, testSet)
+
+autoplot(window(Daily_dfts, start = c(2009,300))) +
+  autolayer(Daily_dffit1, series="Mean", PI=FALSE) +
+  autolayer(Daily_dffit2, series="Naïve", PI=FALSE) +
+  autolayer(Daily_dffit3, series="Seasonal naïve", PI=FALSE) +
+  xlab("Year") + ylab("Energy (kW/h)") +
+  ggtitle("Forecasts for monthly power consume") +
+  guides(colour=guide_legend(title="Forecast"))
+
+# IDEA ----
+
+e <- tsCV(Monthly_dfts, rwf, drift=TRUE, h=1)
+e2 <- tsCV(Monthly_dfts, snaive, drift=TRUE, h=1)
+
+sqrt(mean(e^2, na.rm=TRUE))
+sqrt(mean(e2^2, na.rm=TRUE))
+
+sqrt(mean(residuals(rwf(Monthly_dfts, drift=TRUE))^2, na.rm=TRUE))
+sqrt(mean(residuals(snaive(Monthly_dfts, drift=TRUE))^2, na.rm=TRUE))
+
 
 # Now by month and tariff ----
 df4 <- newDF %>% group_by(Date, hour, tariff) %>% 
@@ -310,7 +379,6 @@ df5$Tariff <- "Normal Tariff"
 comparison <- compare_df(df4, df5, "yearmonth")
 comparison$comparison_df
 comparison$html_output
-
 
 Tariff_df <- as.data.frame(rbind(df4,df5))
 dTariff_df$year <- NULL
@@ -424,60 +492,5 @@ plot_ly(Rep_day_df, x = Rep_day_df$Hour, y = Rep_day_df$kitchen_energy, name = "
   layout(title = "Representative day of Energy consumed per submeter",
          xaxis = list(title = "Time"), yaxis = list(title = "Energy (kW/h)"))
 
-# Data splitting ----
-trainSet <- window(Monthly_dfts, 2007, c(2009,12))
-Monthly_dffit1 <- meanf(trainSet,h=12)
-Monthly_dffit2 <- rwf(trainSet,h=12)
-Monthly_dffit3 <- snaive(trainSet,h=12)
-
-testSet <- window(Monthly_dfts, 2010)
-accuracy(Monthly_dffit1, testSet)
-accuracy(Monthly_dffit2, testSet)
-accuracy(Monthly_dffit3, testSet)
-
-gglagplot(Monthly_dfts) # The relationship is strongly positive at lag 12, reflecting the strong seasonality in the data.
-ggAcf(Monthly_dfts, lag=24)
-ggsubseriesplot(Monthly_dfts)
-ggseasonplot(Monthly_dfts, year.labels=TRUE, year.labels.left=TRUE) +
-  ylab("Power consumed (kW/h)") +
-  ggtitle("Seasonal plot: Monthly power consume")
-
-
-autoplot(window(Monthly_dfts, start=2007)) +
-  autolayer(Monthly_dffit1, series="Mean", PI=FALSE) +
-  autolayer(Monthly_dffit2, series="Naïve", PI=FALSE) +
-  autolayer(Monthly_dffit3, series="Seasonal naïve", PI=FALSE) +
-  xlab("Year") + ylab("Energy (kW/h)") +
-  ggtitle("Forecasts for monthly power consume") +
-  guides(colour=guide_legend(title="Forecast"))
-
-trainSet <- window(Daily_dfts, 2007, c(2010,300))
-Daily_dffit1 <- meanf(trainSet,h=65)
-Daily_dffit2 <- rwf(trainSet,h=65)
-Daily_dffit3 <- snaive(trainSet,h=65)
-
-testSet <- window(Daily_dfts, c(2010,300))
-accuracy(Daily_dffit1, testSet)
-accuracy(Daily_dffit2, testSet)
-accuracy(Daily_dffit3, testSet)
-
-autoplot(window(Daily_dfts, start = c(2009,300))) +
-  autolayer(Daily_dffit1, series="Mean", PI=FALSE) +
-  autolayer(Daily_dffit2, series="Naïve", PI=FALSE) +
-  autolayer(Daily_dffit3, series="Seasonal naïve", PI=FALSE) +
-  xlab("Year") + ylab("Energy (kW/h)") +
-  ggtitle("Forecasts for monthly power consume") +
-  guides(colour=guide_legend(title="Forecast"))
-
-# IDEA ----
-
-e <- tsCV(Monthly_dfts, rwf, drift=TRUE, h=1)
-e2 <- tsCV(Monthly_dfts, snaive, drift=TRUE, h=1)
-
-sqrt(mean(e^2, na.rm=TRUE))
-sqrt(mean(e2^2, na.rm=TRUE))
-
-sqrt(mean(residuals(rwf(Monthly_dfts, drift=TRUE))^2, na.rm=TRUE))
-sqrt(mean(residuals(snaive(Monthly_dfts, drift=TRUE))^2, na.rm=TRUE))
 
 
