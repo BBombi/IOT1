@@ -81,7 +81,7 @@ for (i in 4:ncol(newDF)){
 for (i in 4:ncol(newDF)) {
   newDF[which(is.na(newDF[ ,i]) == TRUE), i] <- Mode(newDF[ ,i])
 }
-
+rm(i)
 # Create attributes from "DateTime" ----
 
 newDF$Date <- date(newDF$DateTime)
@@ -202,7 +202,8 @@ summary(fit_Monthly_df)
 plot(forecast(fit_Monthly_df, h=5, level=c(80,90)))
 
 checkresiduals(fit_Monthly_df)
-CV(fit_Monthly_df)
+CV(fit_Monthly_df) # Better AdjR^2, but still pretty bad.
+round(accuracy(fit_Monthly_df)) # Seems to have good metrics
 
 ## Decomposing the Time series:
 decomposed_Monthly_dfts <- decompose(Monthly_dfts)
@@ -220,6 +221,15 @@ fit <- Monthly_dfts %>% seas(x11="")
 #   scale_colour_manual(values=c("gray","blue","red"),
 #                       breaks=c("Data","Seasonally Adjusted","Trend")) # It's not working, and I don't know why
 
+round(accuracy(ses(window(Monthly_dfts, start=2009), h=10)),2) 
+
+# autoplot(Monthly_dfts) + autolayer(holt(Monthly_dfts, h=15), 
+#                                    series= "Holt's method", PI = FALSE) +
+#   autolayer(fholt(Monthly_dfts, damped = TRUE, phi = 0.9, h=15), 
+#             series = "Damped Holt's method", PI = FALSE) +
+#   ggtitle("Forecasts from Holt's method") + xlab("Year") +
+#   ylab("Energy consumed per month (kW/h)") +
+#   guides(colour = guide_legend(title = "Forecast")) # Not working neither for the same reason.
 
 summary(decomposed_Monthly_dfts)
 decomposed_Monthly_dfts$random
@@ -250,6 +260,9 @@ plot(decompose(adjusted_Monthly_dfts))
 
 Monthly_dfts_HW <- HoltWinters(adjusted_Monthly_dfts, beta=FALSE, gamma=FALSE)
 plot(Monthly_dfts_HW, ylim = c(575, 950))
+
+Monthly_dfts_HW2 <- hw(window(adjusted_Monthly_dfts,start = 2008), 
+                       damped = TRUE, seasonal = "additive") # Seems to have the best performance
 
  ## Forecast Holt-Winters:
 Monthly_dfts_HW_forecast<- forecast(Monthly_dfts_HW, h=5)
