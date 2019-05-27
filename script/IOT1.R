@@ -1,10 +1,14 @@
 # Settings -----
+if(require("pacman")=="FALSE"){
+  install.packages("pacman")
+}
+
 pacman::p_load(chron, ggplot2, tidyr, plyr, RMySQL, lubridate, reshape2, 
                quantmod, scales, RColorBrewer, sqldf, dplyr, prophet, 
                compareDF, reshape, rstudioapi, stringi, plotly, padr, 
                DescTools, anytime, forecast, seasonal) #ggfortify not used because corrumpt the script
 
-Ycurrent_path <- getActiveDocumentContext()$path
+current_path <- getActiveDocumentContext()$path
 setwd(dirname(dirname(current_path)))
 rm(current_path)
 
@@ -115,9 +119,11 @@ newDF$tariff <- ifelse(newDF$Time2 > x[1] & newDF$Time2 < x[2] |
 rm(x)
 
 # Splitting the data by day ----
-Daily_df <- newDF %>% filter(year > 2006) %>% group_by(Date, Time) %>% 
-  summarise(x = sum(Global_active_power/60))
-Daily_df <- Daily_df %>% group_by(Date) %>% summarise(Energy = sum(x))
+Daily_df <- newDF %>% dplyr::filter(year > 2006) %>% 
+  dplyr::group_by(Date, Time) %>% 
+  dplyr::summarise(x = sum(Global_active_power/60))
+Daily_df <- Daily_df %>% dplyr::group_by(Date) %>% 
+  dplyr::summarise(Energy = sum(x))
 Daily_df$year <- year(Daily_df$Date)
 Daily_df$month <- month(Daily_df$Date)
 Daily_df$monthf <- factor(Daily_df$month, levels = as.character(1:12), 
@@ -161,15 +167,16 @@ summary(decomposed_Daily_dfts)
 decomposed_Daily_dfts$random
 
 x <- stl(Daily_dfts, "periodic")
-seasonal_stl_Daily_dfts <- x$time.series[,1]
-trend_stl_Daily_dfts <- x$time.series[,2]
-random_stl_Daily_dfts <- x$time.series[,3]
+x$time.series[,1] # Seasonal
+x$time.series[,2] # Trend
+x$time.series[,3] # Random
 y <- (sum(abs(x$time.series[,3])))/nrow(Daily_df) # Absolute Mean Error
 
 rm(x, y)
 
 # Now by month ----
-Monthly_df <- Daily_df %>% group_by(yearmonth) %>% summarise(Energy = sum(Energy))
+Monthly_df <- Daily_df %>% dplyr::group_by(yearmonth) %>% 
+  dplyr::summarise(Energy = sum(Energy))
 Monthly_df$year <- year(Monthly_df$yearmonth)
 Monthly_df$month <- month(Monthly_df$yearmonth)
 Monthly_df$monthf <- factor(Monthly_df$month, levels = as.character(1:12), 
@@ -220,7 +227,7 @@ autoplot(Monthly_dfts, series = "Data") +
   scale_colour_manual(values=c("darkgray","blue","red"),
                       breaks=c("Data","Seasonally Adjusted","Trend")) 
 
-round(accuracy(ses(window(Monthly_dfts, start=2007), h=10)),2) 
+round(accuracy(ses(window(Monthly_dfts, start=2007), h=10)),2) #Not really good metrix.
 
 autoplot(Monthly_dfts) + autolayer(holt(Monthly_dfts, h=15),
                                    series= "Holt's method", PI = FALSE) +
@@ -236,9 +243,9 @@ summary(decomposed_Monthly_dfts)
 decomposed_Monthly_dfts$random
 
 x <- stl(Monthly_dfts, "periodic")
-seasonal_stl_Monthly_dfts <- x$time.series[,1]
-trend_stl_Monthly_dfts <- x$time.series[,2]
-random_stl_Monthly_dfts <- x$time.series[,3]
+x$time.series[,1] # Seasonal
+x$time.series[,2] # Trend
+x$time.series[,3] # Random
 y <- (sum(abs(x$time.series[,3])))/nrow(Monthly_df) # Absolute Mean Error
 
 rm(x, y)
@@ -267,8 +274,14 @@ round(accuracy(hw(adjusted_Monthly_dfts)),2) # Seems to have the best performanc
 plot(Monthly_dfts_HW, ylim = c(575, 950))
 
  ## Forecast with Prophet:
-Prophet_df <- data.frame(ds = Monthly_df$yearmonth, y = Monthly_df$Energy)
-prophet(Prophet_df)
+Prophet_df <- data.frame(ds = Daily_df$Date, y = Daily_df$Energy)
+Prophet_df <- add_country_holidays(Prophet_df, "France")
+
+Prophet_fit <- prophet(Prophet_df)
+cross_validation(Prophet_fit, horizon = 30, units = "days", initial = 900)
+performance_metrics(cross_validation(Prophet_fit, horizon = 30, 
+                                     units = "days", initial = 900), 
+                    rolling_window = 0.1)
 
  #Forecast with auto-ARIMA:
 auto.arima(Monthly_dfts) %>% forecast(h=10) %>% autoplot(include=80)
@@ -298,48 +311,56 @@ ggseasonplot(Monthly_dfts, year.labels=TRUE, year.labels.left=TRUE) +
   ylab("Power consumed (kW/h)") +
   ggtitle("Seasonal plot: Monthly power consume")
 
-
-autoplot(window(Monthly_dfts, start=2007)) +
+autoplot(window(Monthly_dfts, start=2009)) +
   autolayer(Monthly_dffit1, series="Mean", PI=FALSE) +
   autolayer(Monthly_dffit2, series="Naïve", PI=FALSE) +
   autolayer(Monthly_dffit3, series="Seasonal naïve", PI=FALSE) +
+  autolayer(Monthly_dffit4, series="Holt-Winters", PI=FALSE) +
+  autolayer(Monthly_dffit5, series="ARIMA", PI=FALSE) +
+  autolayer(Monthly_dffit6, series="Time Series Linear Model", PI=FALSE) +
   xlab("Year") + ylab("Energy (kW/h)") +
   ggtitle("Forecasts for monthly power consume") +
   guides(colour=guide_legend(title="Forecast"))
 
-trainSet <- window(Daily_dfts, 2007, c(2010,300))
-Daily_dffit1 <- meanf(trainSet,h=65)
-Daily_dffit2 <- rwf(trainSet,h=65)
-Daily_dffit3 <- snaive(trainSet,h=65)
+trainSet2 <- window(Daily_dfts, 2007, c(2010,300))
+Daily_dffit1 <- meanf(trainSet2,h=65)
+Daily_dffit2 <- rwf(trainSet2,h=65)
+Daily_dffit3 <- snaive(trainSet2,h=65)
+# Daily_dffit4 <- hw(trainSet2, h=65) # Not working due to high frequency
+Daily_dffit5 <- auto.arima(trainSet2) %>% forecast(h=65)
+Daily_dffit6 <- tslm(trainSet2 ~ trend + season) %>% forecast(h=65)
 
-testSet <- window(Daily_dfts, c(2010,300))
-accuracy(Daily_dffit1, testSet)
-accuracy(Daily_dffit2, testSet)
-accuracy(Daily_dffit3, testSet)
+testSet2 <- window(Daily_dfts, c(2010,300))
+round(accuracy(Daily_dffit1, testSet2),2)
+round(accuracy(Daily_dffit2, testSet2),2) 
+round(accuracy(Daily_dffit3, testSet2),2)
+round(accuracy(Daily_dffit5, testSet2),2)
+round(accuracy(Daily_dffit6, testSet2),2)
 
 autoplot(window(Daily_dfts, start = c(2009,300))) +
   autolayer(Daily_dffit1, series="Mean", PI=FALSE) +
   autolayer(Daily_dffit2, series="Naïve", PI=FALSE) +
   autolayer(Daily_dffit3, series="Seasonal naïve", PI=FALSE) +
+  autolayer(Daily_dffit5, series="ARIMA", PI=FALSE) +
+  autolayer(Daily_dffit3, series="Time Series Linear Model", PI=FALSE) +
   xlab("Year") + ylab("Energy (kW/h)") +
   ggtitle("Forecasts for monthly power consume") +
   guides(colour=guide_legend(title="Forecast"))
 
-# IDEA ----
+# MSE----
 
-e <- tsCV(Monthly_dfts, rwf, drift=TRUE, h=1)
-e2 <- tsCV(Monthly_dfts, snaive, drift=TRUE, h=1)
+e <- tsCV(Monthly_dfts, snaive, drift=TRUE, h=1)
+e2 <- tsCV(Monthly_dfts, hw, drift=TRUE, h=1)
 
 sqrt(mean(e^2, na.rm=TRUE))
 sqrt(mean(e2^2, na.rm=TRUE))
 
-sqrt(mean(residuals(rwf(Monthly_dfts, drift=TRUE))^2, na.rm=TRUE))
 sqrt(mean(residuals(snaive(Monthly_dfts, drift=TRUE))^2, na.rm=TRUE))
-
+sqrt(mean(residuals(hw(Monthly_dfts, drift=TRUE))^2, na.rm=TRUE))
 
 # Now by month and tariff ----
-df4 <- newDF %>% group_by(Date, hour, tariff) %>% 
-  summarise(sum_total_power = sum(Global_active_power/60))
+df4 <- newDF %>% dplyr::group_by(Date, hour, tariff) %>% 
+  dplyr::summarise(sum_total_power = sum(Global_active_power/60))
 df4$yearmonth <- as.yearmon(df4$Date)
 df4$PeakPower <- ifelse(df4$tariff == "peak", 
                               (df4$sum_total_power), 0)
@@ -349,8 +370,8 @@ df4$PeakCost <- df4$PeakPower * peak_fare$Peak_Price_per_kWh[3]
 df4$OffPeakCost <- df4$OffPeakPower * 
   peak_fare$Off_Peak_Price_per_kWh[3]
 df4$variable_tariff_cost <- df4$PeakCost + df4$OffPeakCost
-df4 <- df4 %>% group_by(yearmonth) %>% 
-  summarise(Monthly_fare = sum(variable_tariff_cost) + 
+df4 <- df4 %>% dplyr::group_by(yearmonth) %>% 
+  dplyr::summarise(Monthly_fare = sum(variable_tariff_cost) + 
               peak_fare$Subscription_price[3]/12)
 head(df4)
 df4$year <- year(df4$yearmonth)
@@ -360,8 +381,8 @@ ggplot(df4, aes(x = yearmonth, y = Monthly_fare)) +
   geom_line(color = "#01EC13", size = 1) + ylab("Euros") +
   xlab("") + ggtitle("Peak/Valey tariff monthly fares")
 
-df5 <- newDF %>% group_by(yearmonth) %>% summarise(sum_total_power = 
-                                                  sum(Global_active_power/60))
+df5 <- newDF %>% dplyr::group_by(yearmonth) %>% 
+  dplyr::summarise(sum_total_power = sum(Global_active_power/60))
 head(df5)
 df5$Monthly_fare <- df5$sum_total_power * normal_fare$Price._per_kWh[4] + 
   (normal_fare$Subscrition_price[4]/12)
@@ -381,7 +402,7 @@ comparison$comparison_df
 comparison$html_output
 
 Tariff_df <- as.data.frame(rbind(df4,df5))
-dTariff_df$year <- NULL
+Tariff_df$year <- NULL
 Tariff_df$month <- NULL
 
 ggplot(data = Tariff_df, aes(x = yearmonth, y = Monthly_fare)) + 
@@ -411,9 +432,9 @@ ggplot(RatingTf_df, aes(x = yearmonth, y = ratio, colour = Tariff)) +
   geom_line() + ylab("Normal fare ratio") + xlab("Year")
 
 # Plotting some weeks ----
-Weekly_df <- Daily_df %>% filter(year == 2007, month == 3) %>% 
-  group_by(weekday, week, Date) %>% 
-  summarise(Energy = sum(Energy))
+Weekly_df <- Daily_df %>% 
+  dplyr::group_by(weekday, week, Date, year, yearmonthf) %>% 
+  dplyr::summarise(Energy = sum(Energy))
 Weekly_df$week <- stringi::stri_datetime_fields(Weekly_df$Date)$WeekOfMonth
 Weekly_df$weekdayx <- factor(Weekly_df$weekday, labels = c(7, 1, 2, 3, 4, 5, 
                                                6), ordered = TRUE)
@@ -426,37 +447,61 @@ ggplot(Weekly_df, aes(x = weekdayf, y = Energy, colour = week, group = week)) +
   ggtitle("Energy consume per day")
 
 # Plotting by submeters----
-Submeter_df <- df %>% filter(year == 2007) %>% group_by(Date, Time) %>% 
-  summarise(kitchen_energy = sum(kitchen/1000), laundry_energy = sum(laundry/1000), 
-            conditioning_energy = sum(conditioning/1000))
-Submeter_df$yearmonth <- as.yearmon(Submeter_df$Date)
+Submeter_df <- newDF %>% dplyr::group_by(Date, Time, yearmonth) %>% 
+  dplyr::summarise(Kitchen = sum(kitchen/1000), Laundry = sum(laundry/1000), 
+            Conditioning = sum(conditioning/1000), 
+            Global_Energy = sum(Global_active_power/60))
 
-Submeter_df <- Submeter_df %>% group_by(yearmonth) %>% 
-  summarise(kitchen_energy = sum(kitchen_energy), 
-            laundry_energy = sum(laundry_energy), 
-            conditioning_energy = sum(conditioning_energy))
-Submeter_df$year <- year(Submeter_df$yearmonth)
-Submeter_df$month <- as.integer(month(Submeter_df$yearmonth))
-Submeter_df$monthf <- factor(Submeter_df$month, levels = as.character(1:12), 
-                     labels = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", 
-                                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"), 
-                     ordered = TRUE)
-Submeter_df$yearmonthf <- as.character(Submeter_df$yearmonth)
+Submeter_df$No_submetered <- (Submeter_df$Global_Energy - 
+                                Submeter_df$Kitchen - Submeter_df$Laundry - 
+                                Submeter_df$Conditioning)
 
-ggplot(Submeter_df, aes(x = monthf, group = 1)) + 
-  geom_line(aes(y = kitchen_energy), color = "#1A237E") + 
-  geom_line(aes(y = conditioning_energy), color = "#C62828") + 
-  geom_line(aes(y = laundry_energy), color = "#2E7D32") + 
-  ylab("Energy (kW/h)") + xlab("Month") + ggtitle("Energy consumed per submeter")
+Submeter_ts <- Submeter_df %>% dplyr::group_by(Date) %>% 
+  dplyr::summarise(Kitchen = round(sum(Kitchen),2),
+            Laundry = round(sum(Laundry),2), 
+            Conditioning = round(sum(Conditioning),2),
+            Global_Energy = round(sum(Global_Energy),0),
+            No_submetered = round(sum(No_submetered),2))%>%
+  dplyr::select(Global_Energy, Kitchen, Laundry, Conditioning, 
+                No_submetered) %>% 
+  ts(frequency = 365, start = c(2007,1))
+
+ggplot2::autoplot(Submeter_ts) + ylab("Energy (kW/h)") + xlab("Date") + 
+  ggtitle("Daily energy consumed per submeter")
+
+Submeter_df1 <- Submeter_df %>% dplyr::group_by(yearmonth) %>% 
+  dplyr::summarise(Kitchen = round(sum(Kitchen),2),
+            Laundry = round(sum(Laundry),2), 
+            Conditioning = round(sum(Conditioning),2),
+            Global_Energy = round(sum(Global_Energy),0),
+            No_submetered = round(sum(No_submetered),2))
+
+Submeterdf1ts <- Submeter_df1 %>% dplyr::select(Global_Energy, Kitchen, 
+                                                Laundry, Conditioning,
+                                                No_submetered) %>% 
+  ts(frequency = 12, start = c(2007,1))
+
+ggplot2::autoplot(Submeterdf1ts) + ylab("Energy (kW/h)") + xlab("Month") + 
+  ggtitle("Monthly energy consumed per submeter")
+
+Day_submeter <- Submeter_df %>% dplyr::group_by(Date) %>% 
+  dplyr::summarise(Kitchen = round(sum(Kitchen),2),
+            Laundry = round(sum(Laundry),2), 
+            Conditioning = round(sum(Conditioning),2),
+            Global_Energy = round(sum(Global_Energy),0),
+            No_submetered = round(sum(No_submetered),2))%>%
+  dplyr::select(Global_Energy, Kitchen, Laundry, Conditioning, 
+                No_submetered, Date)
 
 # Plotting for a representative day ----
-Rep_day_df <- newDF %>% group_by(DateTime, weekday, hour, day) %>% 
-  summarise(kitchen_energy = sum(kitchen/1000), laundry_energy = sum(laundry/1000), 
+Rep_day_df <- newDF %>% dplyr::group_by(DateTime, weekday, hour, day) %>% 
+  dplyr::summarise(kitchen_energy = sum(kitchen/1000), 
+            laundry_energy = sum(laundry/1000), 
             conditioning_energy = sum(conditioning/1000), 
             Global_Energy = sum(Global_active_power/60))
 
-Rep_day_df <- Rep_day_df %>% group_by(day, hour) %>% 
-  summarise(kitchen_energy = round(sum(kitchen_energy),0), 
+Rep_day_df <- Rep_day_df %>% dplyr::group_by(day, hour) %>% 
+  dplyr::summarise(kitchen_energy = round(sum(kitchen_energy),0), 
             laundry_energy = round(sum(laundry_energy),0), 
             conditioning_energy = round(sum(conditioning_energy),0), 
             Global_Energy = round(sum(Global_Energy),0))
@@ -466,8 +511,8 @@ getmode <- function(v) {
   uniqv[which.max(tabulate(match(v, uniqv)))]
 }
 
-Rep_day_df <- Rep_day_df %>% group_by(hour) %>% 
-  summarise(kitchen_energy = getmode(kitchen_energy), 
+Rep_day_df <- Rep_day_df %>% dplyr::group_by(hour) %>% 
+  dplyr::summarise(kitchen_energy = getmode(kitchen_energy), 
             laundry_energy = getmode(laundry_energy), 
             conditioning_energy = getmode(conditioning_energy), 
             Global_Energy = getmode(Global_Energy))
@@ -491,6 +536,5 @@ plot_ly(Rep_day_df, x = Rep_day_df$Hour, y = Rep_day_df$kitchen_energy, name = "
   add_trace(y = Rep_day_df$Global_Energy, name = "Global", mode = "lines") %>%
   layout(title = "Representative day of Energy consumed per submeter",
          xaxis = list(title = "Time"), yaxis = list(title = "Energy (kW/h)"))
-
 
 
