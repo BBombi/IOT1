@@ -191,7 +191,9 @@ ggplot(Monthly_df, aes(x = yearmonth, y = Energy)) +
 Monthly_df$Year <- as.factor(Monthly_df$year)
 ggplot(Monthly_df, aes(x = monthf, y = Energy, colour = Year, group = Year)) +
   geom_line() + ylab("Energy (kW/h)") + xlab("Month") +
-  ggtitle("Energy consume per month") + geom_point() 
+  ggtitle("Energy consume per month") + geom_point()
+
+Monthly_df$Date <- date(Monthly_df$yearmonth)
 
  #Converting it to a Time Series
 Monthly_dfts <- ts(Monthly_df$Energy, frequency = 12, start = c(2007,1))
@@ -289,20 +291,22 @@ round(accuracy(auto.arima(Monthly_dfts)),2) # Pretty close to the HW one.
 
 # Data splitting ----
 trainSet <- window(Monthly_dfts, 2007, c(2009,12))
-Monthly_dffit1 <- meanf(trainSet,h=10)
-Monthly_dffit2 <- rwf(trainSet,h=10)
-Monthly_dffit3 <- snaive(trainSet,h=10)
-Monthly_dffit4 <- hw(trainSet, h=10)
-Monthly_dffit5 <- auto.arima(trainSet) %>% forecast(h=10)
-Monthly_dffit6 <- tslm(trainSet ~ trend + season) %>% forecast(h=10)
+Monthly_dffit1 <- meanf(trainSet,h=12)
+Monthly_dffit2 <- rwf(trainSet,h=12)
+Monthly_dffit3 <- snaive(trainSet,h=12)
+Monthly_dffit4 <- hw(trainSet, h=12)
+Monthly_dffit5 <- auto.arima(trainSet) %>% forecast(h=12)
+Monthly_dffit6 <- tslm(trainSet ~ trend + season) %>% forecast(h=12)
+Monthly_dffit7 <- ets(trainSet) %>% forecast(h=12)
 
-testSet <- window(Monthly_dfts, 2010)
+testSet <- window(Monthly_dfts, c(2010,01))
 round(accuracy(Monthly_dffit1, testSet),2)
 round(accuracy(Monthly_dffit2, testSet),2) # Worst one by far
 round(accuracy(Monthly_dffit3, testSet),2)
-round(accuracy(Monthly_dffit4, testSet),2) 
+round(accuracy(Monthly_dffit4, testSet),2)
 round(accuracy(Monthly_dffit5, testSet),2) # better at the training test, but worse at the test set
 round(accuracy(Monthly_dffit6, testSet),2) # better at the test set, but worse at the test set. It has the lowest RMSE
+round(accuracy(Monthly_dffit7, testSet),2) # Best one so far
 
 gglagplot(Monthly_dfts) # The relationship is strongly positive at lag 12, reflecting the strong seasonality in the data.
 ggAcf(Monthly_dfts, lag=24)
@@ -318,9 +322,25 @@ autoplot(window(Monthly_dfts, start=2009)) +
   autolayer(Monthly_dffit4, series="Holt-Winters", PI=FALSE) +
   autolayer(Monthly_dffit5, series="ARIMA", PI=FALSE) +
   autolayer(Monthly_dffit6, series="Time Series Linear Model", PI=FALSE) +
+  autolayer(Monthly_dffit7, series="Exponential Smoothing Model", PI=FALSE) +
   xlab("Year") + ylab("Energy (kW/h)") +
   ggtitle("Forecasts for monthly power consume") +
   guides(colour=guide_legend(title="Forecast"))
+
+fore <- forecast(Monthly_dfts, h = 6, level = c(80, 95))
+
+plot_ly() %>%
+  add_lines(x = time(Monthly_dfts), y = Monthly_dfts,
+            color = I("black"), name = "observed") %>%
+  add_ribbons(x = time(fore$mean), ymin = fore$lower[, 2], ymax = fore$upper[, 2],
+              color = I("gray95"), name = "95% confidence") %>%
+  add_ribbons(x = time(fore$mean), ymin = fore$lower[, 1], ymax = fore$upper[, 1],
+              color = I("gray80"), name = "80% confidence") %>%
+  add_lines(x = time(fore$mean), y = fore$mean, color = I("blue"), 
+            name = "prediction") %>%
+  layout(title = "Monthly energy consume predicted",
+         xaxis = list(title = "Time"), 
+         yaxis = list(title = "Energy (kW/h)"))
 
 trainSet2 <- window(Daily_dfts, 2007, c(2010,300))
 Daily_dffit1 <- meanf(trainSet2,h=65)
@@ -475,6 +495,8 @@ Submeter_df1 <- Submeter_df %>% dplyr::group_by(yearmonth) %>%
             Conditioning = round(sum(Conditioning),2),
             Global_Energy = round(sum(Global_Energy),0),
             No_submetered = round(sum(No_submetered),2))
+
+Submeter_df1$Date <- date(Submeter_df1$yearmonth)
 
 Submeterdf1ts <- Submeter_df1 %>% dplyr::select(Global_Energy, Kitchen, 
                                                 Laundry, Conditioning,
