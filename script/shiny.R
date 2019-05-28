@@ -21,7 +21,8 @@ ui <- dashboardPage(
                         icon = icon("chart-bar")),
                menuItem("Predictions", tabName = "predictions",
                         icon = icon("chart-line"))),
-      menuItem("Text", tabName = "text", icon = icon("adn"))
+      menuItem("Recomendations", tabName = "recomendations", 
+               icon = icon("the-red-yeti"))
     )
   ),
   # Body ----
@@ -46,8 +47,6 @@ ui <- dashboardPage(
                            infoBoxOutput(width = 9, "box6"))),
       # Historic ----
       tabItem(tabName = "historic",
-              tabsetPanel(
-                tabPanel("Tab 1",
               selectInput(inputId = "select", label = "Select a granuality",
                           choices = list("Month", "Day", "Representative day"),
                           selected = "Month"),
@@ -62,14 +61,31 @@ ui <- dashboardPage(
               infoBoxOutput(width = 6, "box2"),
               infoBoxOutput(width = 6, "box3"),
               infoBoxOutput(width = 6, "box4"),
-              infoBoxOutput(width = 6, "box5"))),
-              tabPanel("Tab 2", box(plotlyOutput("plot2"), width = 600)))),
+              infoBoxOutput(width = 6, "box5"))
+              ),
       # Predictions ----
       tabItem(tabName = "predictions", box(plotlyOutput("foreplot"), 
                                            width = 600),
               fluidRow(infoBoxOutput(width = 9, "box8"))),
-      # Text ----
-      tabItem(tabName = "text", box())
+      # Recomendations ----
+      tabItem(tabName = "recomendations", 
+              tabsetPanel(
+                tabPanel(title = h2(icon("laugh-beam")),
+                 box(plotlyOutput("plot2"), width = 600),box(
+                 mainPanel(h2("Representative Day consumes", align = "center"),
+                           h4("As we can observe at the graph above, the peaks
+                              of power consumtion are between 7 to 10 a.m. and 
+6 to 10 p.m.", "There are some electrical tariffs that allows you to pay a bit
+less during some hours (called Valley hours). Those Valley hours are between 2 
+and 7 a.m. and between 2 and 5 p.m."), 
+h3("Smart Homes has develop smart plugs that allows you to set the hours that 
+you want to use the machine plugged")))), 
+tabPanel(title = h2(icon("grin")), h1("Select the correct Reactive 
+                                                    Power", align = "center"),
+         box(h3("By selecting the correct Reactive Power, you can save up to 
+                40€ a year."), h4("The actual peaks of power forces to hire 
+12 kVA of Reactive Power."))))
+)
     )
   )
 )
@@ -161,18 +177,18 @@ server <- function(input, output) {
                                     normal_fare$Price._per_kWh[4],2),
                             "€"),paste(round(sum(data_text$Global_Energy),2),
                                        "kW/h"), 
-      icon = icon("euro-sign"), color = "purple", fill = TRUE)
+      icon = icon("battery-full"), color = "purple", fill = TRUE)
   })
   # Infobox2
   output$box2 <- renderInfoBox({
     data_text <- subset(Day_submeter, Day_submeter$Date >= input$dates[1] & 
                           Day_submeter$Date <= input$dates[2])
     infoBox(
-      "A/C-Heater Energy consumed", paste0(round(sum(data_text$Conditioning)*
+      "battery-half", paste0(round(sum(data_text$Conditioning)*
                                               normal_fare$Price._per_kWh[4],2),
                                       "€"),paste(round(sum(data_text$Conditioning),2),
                                                  "kW/h"), 
-      icon = icon("euro-sign"), color = "orange", fill = TRUE)
+      icon = icon("battery-three-quarters"), color = "orange", fill = TRUE)
   })
   # Infobox3
   output$box3 <- renderInfoBox({
@@ -183,7 +199,7 @@ server <- function(input, output) {
                                                    normal_fare$Price._per_kWh[4],2),
                                            "€"),paste(round(sum(data_text$Laundry),2),
                                                       "kW/h"), 
-      icon = icon("euro-sign"), color = "green", fill = TRUE)
+      icon = icon("battery-quarter"), color = "green", fill = TRUE)
   })
   # Infobox4
   output$box4 <- renderInfoBox({
@@ -194,7 +210,7 @@ server <- function(input, output) {
                                                 normal_fare$Price._per_kWh[4],2),
                                         "€"),paste(round(sum(data_text$No_submetered),2),
                                                    "kW/h"), 
-      icon = icon("euro-sign"), color = "maroon", fill = TRUE)
+      icon = icon("battery-three-quarters"), color = "maroon", fill = TRUE)
   })
   # Infobox5
   output$box5 <- renderInfoBox({
@@ -205,7 +221,7 @@ server <- function(input, output) {
                                                        normal_fare$Price._per_kWh[4],2),
                                                "€"),paste(round(sum(data_text$Kitchen),2),
                                                           "kW/h"), 
-      icon = icon("euro-sign"), color = "navy", fill = TRUE)
+      icon = icon("battery-empty"), color = "navy", fill = TRUE)
   })
   # Infobox6
   output$box6 <- renderInfoBox({
@@ -234,13 +250,13 @@ server <- function(input, output) {
   # Forecast table
   output$forecasttable <- renderTable({
     foretable <- round(as.data.frame(fore) * normal_fare$Price._per_kWh[4],2)
-    
   })
   # Infobox8
   output$box8 <- renderInfoBox({
     infoBox(
-      "Global Energy consumed", tableOutput("forecasttable"), 
-      icon = icon("euro-sign"), color = "purple", fill = TRUE)
+      "6 months forecast fares per energy consumed", 
+      tableOutput("forecasttable"), icon = icon("euro-sign"), 
+      color = "purple", fill = TRUE)
   })
 }
 

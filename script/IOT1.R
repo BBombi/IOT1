@@ -534,13 +534,13 @@ getmode <- function(v) {
 }
 
 Rep_day_df <- Rep_day_df %>% dplyr::group_by(hour) %>% 
-  dplyr::summarise(kitchen_energy = getmode(kitchen_energy), 
-            laundry_energy = getmode(laundry_energy), 
-            conditioning_energy = getmode(conditioning_energy), 
+  dplyr::summarise(Kitchen = getmode(kitchen_energy), 
+            Laundry = getmode(laundry_energy), 
+            Conditioning = getmode(conditioning_energy), 
             Global_Energy = getmode(Global_Energy))
 
-Rep_day_df$Energy_no_submetered <- (Rep_day_df$Global_Energy - Rep_day_df$kitchen_energy - 
-                               Rep_day_df$laundry_energy - Rep_day_df$conditioning_energy)
+Rep_day_df$No_submetered <- (Rep_day_df$Global_Energy - Rep_day_df$Kitchen - 
+                               Rep_day_df$Laundry - Rep_day_df$Conditioning)
 
 Rep_day_df$Hour <- factor(Rep_day_df$hour, levels = as.character(0:23), 
                    labels = c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", 
@@ -548,12 +548,12 @@ Rep_day_df$Hour <- factor(Rep_day_df$hour, levels = as.character(0:23),
                               "18", "19", "20", "21", "22", "23"), 
                    ordered = TRUE)
 
-plot_ly(Rep_day_df, x = Rep_day_df$Hour, y = Rep_day_df$kitchen_energy, name = "Kitchen", 
+plot_ly(Rep_day_df, x = Rep_day_df$Hour, y = Rep_day_df$Kitchen, name = "Kitchen", 
         type = "scatter", mode = "lines") %>% 
-  add_trace(y = Rep_day_df$conditioning_energy, name = "Conditioning", 
+  add_trace(y = Rep_day_df$Conditioning, name = "Conditioning", 
             mode = "lines") %>%
-  add_trace(y = Rep_day_df$laundry_energy, name = "Laundry", mode = "lines") %>%
-  add_trace(y = Rep_day_df$Energy_no_submetered, name = "Not Submetered", 
+  add_trace(y = Rep_day_df$Laundry, name = "Laundry", mode = "lines") %>%
+  add_trace(y = Rep_day_df$No_submetered, name = "Not Submetered", 
             mode = "lines") %>%
   add_trace(y = Rep_day_df$Global_Energy, name = "Global", mode = "lines") %>%
   layout(title = "Representative day of Energy consumed per submeter",
