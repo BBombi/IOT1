@@ -14,7 +14,7 @@ ui <- dashboardPage(
   # Sidebar ----
   dashboardSidebar(
     sidebarMenu(
-      menuItem("Datsets", tabName = "datasets", 
+      menuItem("Energy costs", tabName = "tariff", 
                icon = icon("charging-station")),
       menuItem("Graphs", tabName = "graph", icon = icon("chart-area"),
                menuItem("Historic Values", tabName = "historic",
@@ -27,29 +27,44 @@ ui <- dashboardPage(
   # Body ----
   dashboardBody(
     tabItems(
-      tabItem(tabName = "datasets", box(dataTableOutput("datasetTable"), 
-                                        width=10)), 
+      # Tariff ----
+      tabItem(tabName = "tariff",
+              selectInput(inputId = "reactivepw",
+                          label = "Select reactive power",
+                          choices = list("3 kVA", "6 kVA", "9 kVA", "12 kVA",
+                                         "15 kVA", "18 kVA", "24 kVA",
+                                         "30 kVA", "36 kVA"),
+                          selected = "12 kVA"),
+              hr(),
+                  dateRangeInput(inputId = "dates", label = "Date range",
+                                      start = min(Day_submeter$Date),
+                                      end = max(Day_submeter$Date),
+                                      min = min(Day_submeter$Date),
+                                      max = max(Day_submeter$Date)),
+                  fluidRow(infoBoxOutput(width = 6, "box0"),
+                           infoBoxOutput(width = 6, "box7"),
+                           infoBoxOutput(width = 9, "box6"))),
+      # Historic ----
       tabItem(tabName = "historic",
               selectInput(inputId = "select", label = "Select a granuality",
                           choices = list("Month", "Day", "Representative day"),
-                          selected = "Month"), box(plotlyOutput("plot"), 
-                                                   width = 600),
+                          selected = "Month"),
+              box(plotlyOutput("plot"), width = 600),
               hr(),
               dateRangeInput("dates", label = h3("Date range"),
-                             start = min(Submeter_df1$Date),
-                             end = max(Submeter_df1$Date),
-                             min = min(Submeter_df1$Date),
-                             max = max(Submeter_df1$Date)),
-              selectInput(inputId = "select2", label = "Select a granuality",
-                          choices = list("Month", "Day"),
-                          selected = "Month"),
-              fluidRow(infoBoxOutput(width = 6, "box1")),
-              fluidRow(infoBoxOutput(width = 6, "box2")),
-              fluidRow(infoBoxOutput(width = 6, "box3")),
-              fluidRow(infoBoxOutput(width = 6, "box4")),
-              fluidRow(infoBoxOutput(width = 6, "box5"))),
+                             start = min(Day_submeter$Date),
+                             end = max(Day_submeter$Date),
+                             min = min(Day_submeter$Date),
+                             max = max(Day_submeter$Date)),
+              fluidRow(infoBoxOutput(width = 6, "box1"),
+              infoBoxOutput(width = 6, "box2"),
+              infoBoxOutput(width = 6, "box3"),
+              infoBoxOutput(width = 6, "box4"),
+              infoBoxOutput(width = 6, "box5"))),
+      # Predictions ----
       tabItem(tabName = "predictions", box(plotlyOutput("foreplot"), 
                                            width = 600)),
+      # Text ----
       tabItem(tabName = "text", box())
     )
   )
@@ -58,11 +73,16 @@ ui <- dashboardPage(
 # SERVER ----
 server <- function(input, output) {
   filteredData <- reactive({
-    switch (input$select2,
-      "Month" = subset(Submeter_df1, Submeter_df1$Date >= input$dates[1] & 
-                         Submeter_df1$Date <= input$dates[2]),
-      "Day" =subset(Day_submeter, Day_submeter$Date >= input$dates[1] & 
-                      Day_submeter$Date <= input$dates[2])
+    switch (input$reactivepw,
+      "3 kVA" = normal_fare$Subscrition_price[1]/365,
+      "6 kVA" = normal_fare$Subscrition_price[2]/365,
+      "9 kVA" = normal_fare$Subscrition_price[3]/365,
+      "12 kVA" = normal_fare$Subscrition_price[4]/365,
+      "15 kVA" = normal_fare$Subscrition_price[5]/365,
+      "18 kVA" = normal_fare$Subscrition_price[6]/365,
+      "24 kVA" = normal_fare$Subscrition_price[7]/365,
+      "30 kVA" = normal_fare$Subscrition_price[8]/365,
+      "36 kVA" = normal_fare$Subscrition_price[9]/365
     )
 })
   get.granularity <- reactive({
@@ -131,6 +151,15 @@ server <- function(input, output) {
              xaxis = list(title = "Time"), 
              yaxis = list(title = "Energy (kW/h)"))
   })
+  # Infobox0
+  output$box0 <- renderInfoBox({
+    data_text <- nrow(subset(Day_submeter, Day_submeter$Date >= input$dates[1] & 
+                          Day_submeter$Date <= input$dates[2]))
+    infoBox(
+      "Reactive Power fare", paste0(round(data_text*filteredData(),2),
+                                           "€"), 
+      icon = icon("euro-sign"), color = "light-blue", fill = TRUE)
+  })
   # Infobox1
   output$box1 <- renderInfoBox({
     data_text <- subset(Day_submeter, Day_submeter$Date >= input$dates[1] & 
@@ -176,13 +205,36 @@ server <- function(input, output) {
     data_text <- subset(Day_submeter, Day_submeter$Date >= input$dates[1] & 
                           Day_submeter$Date <= input$dates[2])
     infoBox(
-      "Kitvhen Energy consumed", paste0(round(sum(data_text$Kitchen)*
+      "Kitchen Energy consumed", paste0(round(sum(data_text$Kitchen)*
                                                        normal_fare$Price._per_kWh[4],2),
                                                "€"), 
       icon = icon("euro-sign"), color = "navy", fill = TRUE)
   })
+  # Infobox6
+  output$box6 <- renderInfoBox({
+    data_text <- subset(Day_submeter, Day_submeter$Date >= input$dates[1] & 
+                          Day_submeter$Date <= input$dates[2])
+    data_text2 <- nrow(subset(Day_submeter, Day_submeter$Date >= input$dates[1] & 
+                               Day_submeter$Date <= input$dates[2]))
+    infoBox(
+      "Total Power bill", paste0(round(data_text2*filteredData()+
+                                            (sum(data_text$Global_Energy)*
+                                               normal_fare$Price._per_kWh[4]),2),
+                                    "€"), "Due to the picks of power consumtion, 
+      the actual Power subscrited is 12 kVA",
+      icon = icon("euro-sign"), color = "black", fill = TRUE)
+  })
+  # Infobox7
+  output$box7 <- renderInfoBox({
+    data_text <- subset(Day_submeter, Day_submeter$Date >= input$dates[1] & 
+                          Day_submeter$Date <= input$dates[2])
+    infoBox(
+      "Global Energy consumed", paste0(round(sum(data_text$Global_Energy)*
+                                               normal_fare$Price._per_kWh[4],2),
+                                       "€"), 
+      icon = icon("euro-sign"), color = "purple", fill = TRUE)
+  })
 }
 
-# RUNNING APP
+# RUNNING APP ----
 shinyApp(ui, server)
-
